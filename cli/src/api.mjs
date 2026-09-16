@@ -85,6 +85,16 @@ export function createClient({
         throw new DriftedApiError("Provide a workflow spec object");
       return request("/api/v1/workflows", { method: "POST", body: JSON.stringify(spec) });
     },
+    /** Patch a workflow: any of name, executionMode, steps, cadenceMinutes, enabled. Returns { workflow }. */
+    updateWorkflow: (workflowId, patch) => {
+      if (!UUID.test(workflowId ?? "")) throw new DriftedApiError("workflowId must be a UUID");
+      if (!patch || typeof patch !== "object")
+        throw new DriftedApiError("Provide the fields to change");
+      return request(`/api/v1/workflows/${workflowId}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+    },
     /**
      * Queue a run. Returns { runId, status, runUrl, targetBaseUrl? }.
      * `baseUrl` points the run at a preview deployment; the token must allow that host.

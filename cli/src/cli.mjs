@@ -10,8 +10,9 @@ const HELP = `drifted — run Drifted workflows and read agent-ready evidence
 Usage
   drifted workflows [--json]
   drifted workflows create <spec.json | -> [--json]   Create paused workflow(s) from a JSON spec (object or array)
+  drifted workflows update <id or name> [patch.json | -] [--enable | --pause] [--cadence <min>]
   drifted run <workflow id or name> [--wait] [--json] [--timeout <s>] [--key <id>]
-  drifted run --all [--wait] [--json] [--timeout <s>]
+  drifted run --all [--wait] [--json] [--timeout <s>]                Every workflow in scope, paused ones included
   drifted run <workflow> --base-url https://pr-12.example.app   Verify a preview deployment
   drifted evidence <runId> [--json]
   drifted repair <runId> [--json]
@@ -53,6 +54,9 @@ export async function runCli(
         all: { type: "boolean" },
         json: { type: "boolean", default: false },
         timeout: { type: "string" },
+        enable: { type: "boolean" },
+        pause: { type: "boolean" },
+        cadence: { type: "string" },
         poll: { type: "string" },
         key: { type: "string" },
         "base-url": { type: "string" },
@@ -132,6 +136,39 @@ export async function runCli(
           if (values.json) out(JSON.stringify({ workflows: created }, null, 2));
           return EXIT.PASS;
         }
+        if (rest[0] === "update") {
+          const { workflows } = await client.listWorkflows();
+          const resolved = resolveWorkflow(workflows, rest[1]);
+          if (!resolved.workflow) {
+            err(resolved.error);
+            if (resolved.candidates?.length) err(formatWorkflows(resolved.candidates));
+            return EXIT.USAGE;
+          }
+          let patch = {};
+          if (rest[2]) {
+            try {
+              patch = JSON.parse(
+                rest[2] === "-" ? readFileSync(0, "utf8") : readFileSync(rest[2], "utf8"),
+              );
+            } catch (error) {
+              throw new DriftedApiError(`Could not read the patch: ${error?.message ?? error}`);
+            }
+          }
+          if (values.enable) patch.enabled = true;
+          if (values.pause) patch.enabled = false;
+          if (values.cadence !== undefined) patch.cadenceMinutes = Number(values.cadence);
+          if (Object.keys(patch).length === 0)
+            throw new DriftedApiError(
+              "Nothing to change: pass a patch file, --enable, --pause, or --cadence",
+            );
+          const { workflow } = await client.updateWorkflow(resolved.workflow.id, patch);
+          if (values.json) out(JSON.stringify({ workflow }, null, 2));
+          else
+            out(
+              `Updated ${workflow.name} (${workflow.id}) · ${workflow.stepCount} steps · ${workflow.enabled ? `every ${workflow.cadenceMinutes} min` : "paused"}`,
+            );
+          return EXIT.PASS;
+        }
         const { workflows, environmentId } = await client.listWorkflows();
         if (values.json) out(JSON.stringify({ environmentId, workflows }, null, 2));
         else out(formatWorkflows(workflows));
@@ -144,9 +181,9 @@ export async function runCli(
         const { workflows } = await client.listWorkflows();
         let targets;
         if (values.all) {
-          targets = workflows.filter((w) => w.enabled !== false);
-          if (targets.length === 0)
-            throw new DriftedApiError("No enabled workflows in this token's scope");
+          // Schedule state is about monitoring; an on-demand run covers paused workflows too.
+          targets = workflows;
+          if (targets.length === 0) throw new DriftedApiError("No workflows in this token's scope");
         } else {
           const resolved = resolveWorkflow(workflows, rest[0]);
           if (!resolved.workflow) {

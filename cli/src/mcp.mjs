@@ -44,7 +44,7 @@ export const TOOLS = [
   {
     name: "run_all_workflows",
     description:
-      "Run every enabled Drifted workflow in scope and return each verdict with evidence. Use before declaring a change done.",
+      "Run every Drifted workflow in scope, paused ones included, and return each verdict with evidence. Use before declaring a change done.",
     inputSchema: { type: "object", properties: { ...waitOptions }, additionalProperties: false },
   },
   {
@@ -67,6 +67,24 @@ export const TOOLS = [
         },
       },
       required: ["name", "steps"],
+      additionalProperties: true,
+    },
+  },
+  {
+    name: "update_workflow",
+    description:
+      "Change a Drifted workflow: name, steps, executionMode, cadenceMinutes, or enabled (schedule on/off). Give the workflow id or name plus only the fields to change; the result is validated as a whole.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workflow: { type: "string", description: "Workflow id or name." },
+        name: { type: "string" },
+        executionMode: { type: "string", enum: ["http", "browser"] },
+        steps: { type: "array", items: { type: "object" } },
+        cadenceMinutes: { type: "number" },
+        enabled: { type: "boolean" },
+      },
+      required: ["workflow"],
       additionalProperties: true,
     },
   },
@@ -159,8 +177,8 @@ export function createMcpServer({ getClient, sleep, now } = {}) {
         }
         case "run_all_workflows": {
           const { workflows } = await drifted.listWorkflows();
-          const targets = workflows.filter((w) => w.enabled !== false);
-          if (targets.length === 0) return toolError("No enabled workflows in this token's scope.");
+          const targets = workflows; // paused only means unscheduled; on-demand runs cover them
+          if (targets.length === 0) return toolError("No workflows in this token's scope.");
           const runs = [];
           for (const workflow of targets)
             runs.push(
@@ -189,6 +207,20 @@ export function createMcpServer({ getClient, sleep, now } = {}) {
           return toolResult(
             workflow,
             `Created "${workflow.name}" with ${workflow.stepCount} step(s), ${workflow.enabled ? "scheduled" : "paused"}. Run it with run_workflow.`,
+          );
+        }
+        case "update_workflow": {
+          const { workflows } = await drifted.listWorkflows();
+          const resolved = resolveWorkflow(workflows, args.workflow);
+          if (!resolved.workflow)
+            return toolError(
+              `${resolved.error}. Available: ${resolved.candidates.map((w) => `${w.name} (${w.id})`).join(", ") || "none"}`,
+            );
+          const { workflow: _w, ...patch } = args;
+          const { workflow } = await drifted.updateWorkflow(resolved.workflow.id, patch);
+          return toolResult(
+            workflow,
+            `Updated "${workflow.name}": ${workflow.stepCount} step(s), ${workflow.enabled ? `scheduled every ${workflow.cadenceMinutes} min` : "paused"}.`,
           );
         }
         case "get_run": {
