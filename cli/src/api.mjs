@@ -49,7 +49,7 @@ export function createClient({
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
           accept: "application/json",
-          "user-agent": "drifted-cli/0.1.0",
+          "user-agent": "drifted-cli/0.1.1",
           ...(init.headers ?? {}),
         },
         signal: AbortSignal.timeout(timeoutMs),

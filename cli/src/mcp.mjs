@@ -3,7 +3,7 @@
 import { createInterface } from "node:readline";
 import { createClient, DriftedApiError, resolveWorkflow } from "./api.mjs";
 
-export const SERVER_INFO = { name: "drifted", version: "0.1.0" };
+export const SERVER_INFO = { name: "drifted", version: "0.1.1" };
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 const waitOptions = {

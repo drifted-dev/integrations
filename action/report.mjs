@@ -46,10 +46,11 @@ export function buildMarkdown(result, exitCode) {
   }
   for (const run of result.runs) {
     const e = run.evidence;
-    if (!e || run.status === "passed") continue;
+    if (!e || (run.status === "passed" && e.performance?.status !== "regressed")) continue;
     lines.push("", `### ${e.workflow?.name ?? "Workflow"}: ${e.summary ?? run.status}`);
     if (e.environment?.targetOverride)
       lines.push(`Target: \`${e.environment.targetOverride}\` (preview)`);
+    if (e.performance?.status === "regressed") lines.push(`⚠️ ${e.performance.summary}`);
     if (e.failure) {
       lines.push(
         "",

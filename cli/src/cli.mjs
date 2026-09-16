@@ -28,6 +28,7 @@ Options
   --poll <s>      Seconds between polls (default 2)
   --key <id>      Idempotency key so a retried CI job does not queue twice
   --base-url <u>  Run against a preview URL instead of the environment's URL (token must allow the host)
+  --fail-on-regression  Exit 1 when a passed run is slower than its production baseline (P95 of the last 30 passed runs)
 
 Exit codes
   0 all runs passed · 1 a run failed or ended abnormally · 2 wait deadline passed · 3 usage or API error
@@ -53,6 +54,7 @@ export async function runCli(
         poll: { type: "string" },
         key: { type: "string" },
         "base-url": { type: "string" },
+        "fail-on-regression": { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
         version: { type: "boolean", short: "v", default: false },
       },
@@ -65,7 +67,7 @@ export async function runCli(
   const { values, positionals } = parsed;
   const [command, ...rest] = positionals;
   if (values.version) {
-    out("drifted 0.1.0");
+    out("drifted 0.1.1");
     return EXIT.PASS;
   }
   if (values.help || !command || command === "help") {
@@ -154,11 +156,16 @@ export async function runCli(
           timedOut ||= result.timedOut;
           runs.push(result.run);
         }
+        const regressed =
+          values["fail-on-regression"] &&
+          runs.some((r) => r.evidence?.performance?.status === "regressed");
         const verdict = timedOut
           ? "timed_out_waiting"
-          : runs.every((r) => r.status === "passed")
-            ? "passed"
-            : "failed";
+          : regressed
+            ? "regressed"
+            : runs.every((r) => r.status === "passed")
+              ? "passed"
+              : "failed";
         if (values.json)
           out(JSON.stringify(runs.length === 1 ? runs[0] : { verdict, runs }, null, 2));
         else for (const run of runs) out(formatRun(run));
@@ -175,6 +182,8 @@ export async function runCli(
         if (values.json) out(JSON.stringify(run, null, 2));
         else out(formatRun(run));
         if (!TERMINAL_STATUSES.includes(run.status)) return EXIT.TIMEOUT;
+        if (values["fail-on-regression"] && run.evidence?.performance?.status === "regressed")
+          return EXIT.FAIL;
         return run.status === "passed" ? EXIT.PASS : EXIT.FAIL;
       }
       case "repair": {
@@ -248,6 +257,8 @@ export function formatRun(run) {
     );
     if (e.failure.url) lines.push(`URL:      ${e.failure.url}`);
   }
+  if (e?.performance?.summary && e.performance.status !== "no_baseline")
+    lines.push(`Perf:     ${e.performance.summary}`);
   if (e?.nextActions?.length) {
     lines.push("Next:");
     for (const action of e.nextActions) lines.push(`  - ${action}`);

@@ -20,6 +20,10 @@ inputs:
     description: "Seconds to wait for the verdict."
     required: false
     default: "600"
+  fail-on-regression:
+    description: "Also fail when a passed workflow is slower than its production baseline (P95 of the last 30 passed runs)."
+    required: false
+    default: "false"
   comment:
     description: "Post or update an evidence comment on the pull request."
     required: false
@@ -57,11 +61,13 @@ runs:
         DRIFTED_WORKFLOW: ${{ inputs.workflow }}
         DRIFTED_BASE_URL: ${{ inputs.base-url }}
         DRIFTED_TIMEOUT: ${{ inputs.timeout }}
+        DRIFTED_FAIL_ON_REGRESSION: ${{ inputs.fail-on-regression }}
       run: |
         set +e
         args=(run --wait --json --timeout "$DRIFTED_TIMEOUT")
         if [ -n "$DRIFTED_WORKFLOW" ]; then args+=("$DRIFTED_WORKFLOW"); else args+=(--all); fi
         if [ -n "$DRIFTED_BASE_URL" ]; then args+=(--base-url "$DRIFTED_BASE_URL"); fi
+        if [ "$DRIFTED_FAIL_ON_REGRESSION" = "true" ]; then args+=(--fail-on-regression); fi
         result="$RUNNER_TEMP/drifted-result.json"
         npx -y drifted-dev@0.1 "${args[@]}" > "$result" 2> "$RUNNER_TEMP/drifted-stderr.txt"
         code=$?

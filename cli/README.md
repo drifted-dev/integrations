@@ -19,6 +19,7 @@ npx drifted-dev run checkout --wait --json
 | `drifted evidence <runId>`                  | Read a saved run, including its `evidence` object.                                                              |
 | `drifted repair <runId>`                    | Ask Drifted to open a draft repair PR for a failed CI run (token must allow repairs).                           |
 | `drifted run <id or name> --base-url <url>` | Verify a preview deployment instead of the environment's URL. The token must list the host under Preview hosts. |
+| `drifted run … --fail-on-regression`        | Exit 1 when a passed run is slower than its production baseline.                                                |
 | `drifted mcp`                               | Serve the same operations as MCP tools over stdio for Claude Code, Codex, or any MCP client.                    |
 
 Add `--json` to any command to print JSON. With `--json`, `run` waits by default; pass `--no-wait`

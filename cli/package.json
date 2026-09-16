@@ -1,6 +1,6 @@
 {
   "name": "drifted-dev",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run Drifted workflows and read agent-ready evidence from the terminal, CI, Claude Code, or Codex.",
   "type": "module",
   "license": "MIT",

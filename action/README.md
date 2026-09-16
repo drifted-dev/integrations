@@ -24,13 +24,14 @@ jobs:
           base-url: ${{ github.event.deployment_status.environment_url }}
 ```
 
-| Input      | Default         | Meaning                                                                                       |
-| ---------- | --------------- | --------------------------------------------------------------------------------------------- |
-| `token`    | required        | Drifted CI token from the app's Automation tab.                                               |
-| `workflow` | all enabled     | One workflow id or name.                                                                      |
-| `base-url` | environment URL | Preview URL to verify. Cloud runners only; host must match the token's preview host patterns. |
-| `timeout`  | `600`           | Seconds to wait for the verdict.                                                              |
-| `comment`  | `true`          | Post or update one evidence comment on the PR.                                                |
+| Input                | Default         | Meaning                                                                                       |
+| -------------------- | --------------- | --------------------------------------------------------------------------------------------- |
+| `token`              | required        | Drifted CI token from the app's Automation tab.                                               |
+| `workflow`           | all enabled     | One workflow id or name.                                                                      |
+| `base-url`           | environment URL | Preview URL to verify. Cloud runners only; host must match the token's preview host patterns. |
+| `timeout`            | `600`           | Seconds to wait for the verdict.                                                              |
+| `fail-on-regression` | `false`         | Also fail when a passed workflow is slower than its production baseline.                      |
+| `comment`            | `true`          | Post or update one evidence comment on the PR.                                                |
 
 Outputs: `verdict`, `run-urls`, `result-file`. The job fails when any workflow fails, so the
 check blocks the merge until an agent or a person fixes the code and the re-run passes.
