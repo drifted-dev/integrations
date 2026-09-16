@@ -49,7 +49,7 @@ export function createClient({
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
           accept: "application/json",
-          "user-agent": "drifted-cli/0.1.1",
+          "user-agent": "drifted-cli/0.1.2",
           ...(init.headers ?? {}),
         },
         signal: AbortSignal.timeout(timeoutMs),
@@ -76,6 +76,15 @@ export function createClient({
     origin,
     /** Workflows this token may run. */
     listWorkflows: () => request("/api/v1/workflows"),
+    /**
+     * Create a paused workflow in the token's app and environment from a spec:
+     * { name, executionMode?, steps: [...], cadenceMinutes?, enabled? }. Returns { workflow }.
+     */
+    createWorkflow: (spec) => {
+      if (!spec || typeof spec !== "object")
+        throw new DriftedApiError("Provide a workflow spec object");
+      return request("/api/v1/workflows", { method: "POST", body: JSON.stringify(spec) });
+    },
     /**
      * Queue a run. Returns { runId, status, runUrl, targetBaseUrl? }.
      * `baseUrl` points the run at a preview deployment; the token must allow that host.

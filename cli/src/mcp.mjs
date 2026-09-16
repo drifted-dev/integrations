@@ -3,7 +3,7 @@
 import { createInterface } from "node:readline";
 import { createClient, DriftedApiError, resolveWorkflow } from "./api.mjs";
 
-export const SERVER_INFO = { name: "drifted", version: "0.1.1" };
+export const SERVER_INFO = { name: "drifted", version: "0.1.2" };
 const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 const waitOptions = {
@@ -46,6 +46,29 @@ export const TOOLS = [
     description:
       "Run every enabled Drifted workflow in scope and return each verdict with evidence. Use before declaring a change done.",
     inputSchema: { type: "object", properties: { ...waitOptions }, additionalProperties: false },
+  },
+  {
+    name: "create_workflow",
+    description:
+      'Create a paused Drifted workflow in the token\'s app and environment. HTTP steps: { name, action: "request", method, path, expectStatus?, expectText? }. Browser steps: { name, action: navigate|click|fill|assertText|assertUrl|assertVisible, path?, target?, value?, expectText? }. Validation errors come back with the step number.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        executionMode: { type: "string", enum: ["http", "browser"] },
+        steps: { type: "array", items: { type: "object" }, minItems: 1 },
+        cadenceMinutes: {
+          type: "number",
+          description: "15, 30, 60, 360, 720, 1440, or 10080. Default 1440.",
+        },
+        enabled: {
+          type: "boolean",
+          description: "Schedule it right away. Default false (paused).",
+        },
+      },
+      required: ["name", "steps"],
+      additionalProperties: true,
+    },
   },
   {
     name: "get_run",
@@ -160,6 +183,13 @@ export function createMcpServer({ getClient, sleep, now } = {}) {
                 : "failed";
           const summary = runs.map((r) => `- ${runSummary(r)}`).join("\n");
           return toolResult({ verdict, runs }, `Verdict: ${verdict}\n${summary}`);
+        }
+        case "create_workflow": {
+          const { workflow } = await drifted.createWorkflow(args);
+          return toolResult(
+            workflow,
+            `Created "${workflow.name}" with ${workflow.stepCount} step(s), ${workflow.enabled ? "scheduled" : "paused"}. Run it with run_workflow.`,
+          );
         }
         case "get_run": {
           const run = await drifted.getRun(args.runId);

@@ -20,6 +20,8 @@ separate from unit tests and separate from your own judgement.
 Prefer the MCP tools when the `drifted` server is connected:
 
 1. `list_workflows` to see what can be checked. Pick the workflows the change could affect, or run all.
+   If the app has no workflow for the journey you changed, `create_workflow` adds a paused one; keep
+   production workflows read-only (GET requests, assertions, no form submissions that write).
 2. `run_workflow` with the workflow name, or `run_all_workflows` before finishing. Both wait for the verdict.
 3. Read `evidence.summary` first, then `evidence.failure` and `evidence.nextActions`.
 

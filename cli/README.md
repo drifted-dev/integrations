@@ -14,6 +14,7 @@ npx drifted-dev run checkout --wait --json
 | Command                                     | What it does                                                                                                    |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `drifted workflows`                         | List the workflows this token may run.                                                                          |
+| `drifted workflows create <spec.json \| ->` | Create paused workflow(s) from a JSON spec, an object or an array, from a file or stdin.                        |
 | `drifted run <id or name> --wait`           | Queue one workflow and wait for the verdict. Names match case-insensitively; a unique fragment is enough.       |
 | `drifted run --all --wait`                  | Queue every enabled workflow in scope and wait for all of them.                                                 |
 | `drifted evidence <runId>`                  | Read a saved run, including its `evidence` object.                                                              |

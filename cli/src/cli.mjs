@@ -1,5 +1,6 @@
 // drifted CLI. Human output by default; --json prints exactly what an agent should read.
 import { parseArgs } from "node:util";
+import { readFileSync } from "node:fs";
 import { createClient, DriftedApiError, resolveWorkflow, TERMINAL_STATUSES } from "./api.mjs";
 
 export const EXIT = { PASS: 0, FAIL: 1, TIMEOUT: 2, USAGE: 3 };
@@ -8,6 +9,7 @@ const HELP = `drifted — run Drifted workflows and read agent-ready evidence
 
 Usage
   drifted workflows [--json]
+  drifted workflows create <spec.json | -> [--json]   Create paused workflow(s) from a JSON spec (object or array)
   drifted run <workflow id or name> [--wait] [--json] [--timeout <s>] [--key <id>]
   drifted run --all [--wait] [--json] [--timeout <s>]
   drifted run <workflow> --base-url https://pr-12.example.app   Verify a preview deployment
@@ -67,7 +69,7 @@ export async function runCli(
   const { values, positionals } = parsed;
   const [command, ...rest] = positionals;
   if (values.version) {
-    out("drifted 0.1.1");
+    out("drifted 0.1.2");
     return EXIT.PASS;
   }
   if (values.help || !command || command === "help") {
@@ -103,6 +105,33 @@ export async function runCli(
   try {
     switch (command) {
       case "workflows": {
+        if (rest[0] === "create") {
+          const source = rest[1] ?? "-";
+          let text;
+          try {
+            text = source === "-" ? readFileSync(0, "utf8") : readFileSync(source, "utf8");
+          } catch (error) {
+            throw new DriftedApiError(`Could not read ${source}: ${error?.message ?? error}`);
+          }
+          let parsed;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            throw new DriftedApiError(`${source} is not valid JSON`);
+          }
+          const specs = Array.isArray(parsed) ? parsed : [parsed];
+          const created = [];
+          for (const spec of specs) {
+            const { workflow } = await client.createWorkflow(spec);
+            created.push(workflow);
+            if (!values.json)
+              out(
+                `Created ${workflow.name} (${workflow.id}) · ${workflow.stepCount} steps · ${workflow.enabled ? "scheduled" : "paused"}`,
+              );
+          }
+          if (values.json) out(JSON.stringify({ workflows: created }, null, 2));
+          return EXIT.PASS;
+        }
         const { workflows, environmentId } = await client.listWorkflows();
         if (values.json) out(JSON.stringify({ environmentId, workflows }, null, 2));
         else out(formatWorkflows(workflows));
