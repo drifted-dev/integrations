@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "drifted": {
+      "command": "npx",
+      "args": ["-y", "drifted-dev", "mcp"],
+      "env": {
+        "DRIFTED_TOKEN": "${DRIFTED_TOKEN}",
+        "DRIFTED_URL": "${DRIFTED_URL:-https://drifted.dev}"
+      }
+    }
+  }
+}

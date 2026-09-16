@@ -1,0 +1,7 @@
+# Add to ~/.codex/config.toml (or the project's .codex/config.toml).
+# Set DRIFTED_TOKEN in your shell or CI secrets; never write the token into this file.
+
+[mcp_servers.drifted]
+command = "npx"
+args = ["-y", "drifted-dev", "mcp"]
+env = { DRIFTED_TOKEN = "${DRIFTED_TOKEN}", DRIFTED_URL = "https://drifted.dev" }

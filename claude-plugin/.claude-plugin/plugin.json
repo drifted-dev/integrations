@@ -1,0 +1,13 @@
+{
+  "name": "drifted",
+  "version": "0.1.0",
+  "description": "Verify real customer journeys with Drifted before saying done. Adds the Drifted MCP tools, a /verify command, and a skill that tells Claude when to run checks and how to fix failures from evidence.",
+  "author": {
+    "name": "Drifted",
+    "url": "https://drifted.dev"
+  },
+  "homepage": "https://drifted.dev",
+  "repository": "https://github.com/drifted-dev/integrations",
+  "license": "MIT",
+  "keywords": ["e2e", "verification", "testing", "mcp", "ci", "drifted"]
+}

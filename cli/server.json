@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.drifted-dev/drifted",
+  "description": "Verify real customer journeys on a deployed environment or preview URL and get evidence an agent can fix from.",
+  "repository": {
+    "url": "https://github.com/drifted-dev/integrations",
+    "source": "github",
+    "subfolder": "cli"
+  },
+  "version": "0.1.0",
+  "websiteUrl": "https://drifted.dev",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "drifted-dev",
+      "version": "0.1.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "DRIFTED_TOKEN",
+          "description": "Drifted CI token (dr_ci_...) from the app's Automation tab.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "DRIFTED_URL",
+          "description": "Drifted origin. Defaults to https://drifted.dev.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

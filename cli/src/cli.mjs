@@ -1,0 +1,256 @@
+// drifted CLI. Human output by default; --json prints exactly what an agent should read.
+import { parseArgs } from "node:util";
+import { createClient, DriftedApiError, resolveWorkflow, TERMINAL_STATUSES } from "./api.mjs";
+
+export const EXIT = { PASS: 0, FAIL: 1, TIMEOUT: 2, USAGE: 3 };
+
+const HELP = `drifted — run Drifted workflows and read agent-ready evidence
+
+Usage
+  drifted workflows [--json]
+  drifted run <workflow id or name> [--wait] [--json] [--timeout <s>] [--key <id>]
+  drifted run --all [--wait] [--json] [--timeout <s>]
+  drifted run <workflow> --base-url https://pr-12.example.app   Verify a preview deployment
+  drifted evidence <runId> [--json]
+  drifted repair <runId> [--json]
+  drifted mcp                       Serve the MCP tools over stdio (for Claude Code, Codex, any MCP client)
+
+Environment
+  DRIFTED_TOKEN   CI token from the app's Automation tab (dr_ci_...). DRIFTED_CI_TOKEN also works.
+  DRIFTED_URL     Defaults to https://drifted.dev
+  DRIFTED_RUN_KEY Idempotency key for a retried CI attempt (same as --key)
+
+Options
+  --wait          Poll until the run finishes (default when --json is set)
+  --no-wait       Queue and return immediately
+  --json          Print JSON, including the evidence object
+  --timeout <s>   Seconds to wait before giving up (default 600)
+  --poll <s>      Seconds between polls (default 2)
+  --key <id>      Idempotency key so a retried CI job does not queue twice
+  --base-url <u>  Run against a preview URL instead of the environment's URL (token must allow the host)
+
+Exit codes
+  0 all runs passed · 1 a run failed or ended abnormally · 2 wait deadline passed · 3 usage or API error
+`;
+
+export async function runCli(
+  argv,
+  { env = process.env, fetch, stdout = process.stdout, stderr = process.stderr, sleep, now } = {},
+) {
+  const out = (line) => stdout.write(line + "\n");
+  const err = (line) => stderr.write(line + "\n");
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args: argv,
+      allowPositionals: true,
+      options: {
+        wait: { type: "boolean" },
+        "no-wait": { type: "boolean" },
+        all: { type: "boolean" },
+        json: { type: "boolean", default: false },
+        timeout: { type: "string" },
+        poll: { type: "string" },
+        key: { type: "string" },
+        "base-url": { type: "string" },
+        help: { type: "boolean", short: "h", default: false },
+        version: { type: "boolean", short: "v", default: false },
+      },
+    });
+  } catch (error) {
+    err(error.message);
+    err(HELP);
+    return EXIT.USAGE;
+  }
+  const { values, positionals } = parsed;
+  const [command, ...rest] = positionals;
+  if (values.version) {
+    out("drifted 0.1.0");
+    return EXIT.PASS;
+  }
+  if (values.help || !command || command === "help") {
+    out(HELP);
+    return command || values.help ? EXIT.PASS : EXIT.USAGE;
+  }
+
+  if (command === "mcp") {
+    const { serveStdio } = await import("./mcp.mjs");
+    await serveStdio({ env, ...(fetch ? { fetch } : {}), output: stdout, stderr });
+    return EXIT.PASS;
+  }
+
+  let client;
+  try {
+    client = createClient({
+      token: env.DRIFTED_TOKEN || env.DRIFTED_CI_TOKEN,
+      baseUrl: env.DRIFTED_URL,
+      ...(fetch ? { fetch } : {}),
+    });
+  } catch (error) {
+    err(error.message);
+    return EXIT.USAGE;
+  }
+  const seconds = (value, fallback) => {
+    if (value === undefined) return fallback;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0)
+      throw new DriftedApiError(`Expected a positive number of seconds, got "${value}"`);
+    return n * 1000;
+  };
+
+  try {
+    switch (command) {
+      case "workflows": {
+        const { workflows, environmentId } = await client.listWorkflows();
+        if (values.json) out(JSON.stringify({ environmentId, workflows }, null, 2));
+        else out(formatWorkflows(workflows));
+        return EXIT.PASS;
+      }
+      case "run": {
+        const timeoutMs = seconds(values.timeout, 600_000);
+        const pollMs = seconds(values.poll, 2_000);
+        const wait = values["no-wait"] ? false : values.wait || values.json || false;
+        const { workflows } = await client.listWorkflows();
+        let targets;
+        if (values.all) {
+          targets = workflows.filter((w) => w.enabled !== false);
+          if (targets.length === 0)
+            throw new DriftedApiError("No enabled workflows in this token's scope");
+        } else {
+          const resolved = resolveWorkflow(workflows, rest[0]);
+          if (!resolved.workflow) {
+            err(resolved.error);
+            if (resolved.candidates?.length) err(formatWorkflows(resolved.candidates));
+            return EXIT.USAGE;
+          }
+          targets = [resolved.workflow];
+        }
+        const key = values.key || env.DRIFTED_RUN_KEY;
+        const queued = [];
+        for (const workflow of targets) {
+          const created = await client.createRun({
+            workflowId: workflow.id,
+            ...(key ? { idempotencyKey: targets.length > 1 ? `${key}:${workflow.id}` : key } : {}),
+            ...(values["base-url"] ? { baseUrl: values["base-url"] } : {}),
+          });
+          queued.push({ workflow, created });
+          if (!values.json) out(`Queued ${workflow.name}: ${created.runUrl}`);
+        }
+        if (!wait) {
+          if (values.json) out(JSON.stringify({ runs: queued.map((q) => q.created) }, null, 2));
+          return EXIT.PASS;
+        }
+        const runs = [];
+        let timedOut = false;
+        const started = (now ?? Date.now)();
+        for (const { created } of queued) {
+          const remaining = Math.max(0, timeoutMs - ((now ?? Date.now)() - started));
+          const result = await client.waitForRun(created.runId, {
+            timeoutMs: remaining,
+            pollMs,
+            ...(sleep ? { sleep } : {}),
+            ...(now ? { now } : {}),
+          });
+          timedOut ||= result.timedOut;
+          runs.push(result.run);
+        }
+        const verdict = timedOut
+          ? "timed_out_waiting"
+          : runs.every((r) => r.status === "passed")
+            ? "passed"
+            : "failed";
+        if (values.json)
+          out(JSON.stringify(runs.length === 1 ? runs[0] : { verdict, runs }, null, 2));
+        else for (const run of runs) out(formatRun(run));
+        if (timedOut) {
+          err(
+            "Wait deadline passed before every run finished. Inspect the run URL or raise --timeout.",
+          );
+          return EXIT.TIMEOUT;
+        }
+        return verdict === "passed" ? EXIT.PASS : EXIT.FAIL;
+      }
+      case "evidence": {
+        const run = await client.getRun(rest[0]);
+        if (values.json) out(JSON.stringify(run, null, 2));
+        else out(formatRun(run));
+        if (!TERMINAL_STATUSES.includes(run.status)) return EXIT.TIMEOUT;
+        return run.status === "passed" ? EXIT.PASS : EXIT.FAIL;
+      }
+      case "repair": {
+        const result = await client.repairRun(rest[0]);
+        if (values.json) out(JSON.stringify(result, null, 2));
+        else out(`Draft repair PR: ${result.pullRequestUrl}`);
+        return EXIT.PASS;
+      }
+      default:
+        err(`Unknown command "${command}"`);
+        err(HELP);
+        return EXIT.USAGE;
+    }
+  } catch (error) {
+    if (error instanceof DriftedApiError) {
+      err(error.status ? `${error.message} (HTTP ${error.status})` : error.message);
+      return EXIT.USAGE;
+    }
+    throw error;
+  }
+}
+
+export function formatWorkflows(workflows) {
+  if (!workflows.length) return "No workflows in this token's scope.";
+  const width = Math.max(...workflows.map((w) => w.name.length));
+  return workflows
+    .map(
+      (w) =>
+        `${w.enabled === false ? "⏸" : "•"} ${w.name.padEnd(width)}  ${w.id}  ${w.executionMode ?? ""}${
+          w.lastRunAt ? `  last run ${w.lastRunAt}` : ""
+        }`,
+    )
+    .join("\n");
+}
+
+export function formatRun(run) {
+  const e = run.evidence;
+  const lines = [];
+  const title = e
+    ? `${e.workflow.name} — ${e.environment.name} (${e.environment.baseUrl})`
+    : `Run ${run.runId ?? run.id}`;
+  lines.push(title);
+  const duration = run.duration_ms != null ? ` in ${run.duration_ms} ms` : "";
+  lines.push(`${String(run.status).toUpperCase()}${duration} · ${run.runUrl ?? ""}`.trim());
+  const steps =
+    e?.steps ??
+    (Array.isArray(run.log)
+      ? run.log.map((s) => ({
+          number: s.index + 1,
+          name: s.name,
+          ok: s.ok,
+          status: s.status,
+          durationMs: s.durationMs,
+          detail: s.detail,
+        }))
+      : []);
+  const nameWidth = Math.min(40, Math.max(0, ...steps.map((s) => s.name.length)));
+  for (const step of steps) {
+    const mark = step.ok === null ? "·" : step.ok ? "✓" : "✗";
+    const status = step.status != null ? `HTTP ${step.status}` : "";
+    const ms = step.durationMs != null ? `${step.durationMs} ms` : "";
+    const detail = step.ok === false && step.detail ? `  ${step.detail}` : "";
+    lines.push(
+      `  ${mark} ${String(step.number).padStart(2)}  ${step.name.slice(0, 40).padEnd(nameWidth)}  ${ms.padStart(8)}  ${status}${detail}`.trimEnd(),
+    );
+  }
+  if (e?.failure) {
+    lines.push(`Expected: ${e.failure.expected}`);
+    lines.push(
+      `Observed: ${e.failure.observed.detail}${e.failure.observed.status != null ? ` (HTTP ${e.failure.observed.status})` : ""}`,
+    );
+    if (e.failure.url) lines.push(`URL:      ${e.failure.url}`);
+  }
+  if (e?.nextActions?.length) {
+    lines.push("Next:");
+    for (const action of e.nextActions) lines.push(`  - ${action}`);
+  }
+  return lines.join("\n");
+}

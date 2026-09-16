@@ -1,0 +1,89 @@
+name: "Drifted Verify"
+description: "Run Drifted workflows against a deployed environment or a pull request preview, and post the evidence on the PR."
+author: "Drifted"
+branding:
+  icon: "check-circle"
+  color: "blue"
+inputs:
+  token:
+    description: "Drifted CI token (dr_ci_...). Store it as a repository secret."
+    required: true
+  workflow:
+    description: "Workflow id or name to run. Empty runs every enabled workflow in the token's scope."
+    required: false
+    default: ""
+  base-url:
+    description: "Preview deployment URL to verify instead of the environment's URL. The token must list the host under Preview hosts."
+    required: false
+    default: ""
+  timeout:
+    description: "Seconds to wait for the verdict."
+    required: false
+    default: "600"
+  comment:
+    description: "Post or update an evidence comment on the pull request."
+    required: false
+    default: "true"
+  drifted-url:
+    description: "Drifted origin. Change only for a self-hosted Drifted."
+    required: false
+    default: "https://drifted.dev"
+  github-token:
+    description: "Token used to write the PR comment. Defaults to the workflow token."
+    required: false
+    default: ${{ github.token }}
+outputs:
+  verdict:
+    description: "passed, failed, or timed_out_waiting"
+    value: ${{ steps.run.outputs.verdict }}
+  run-urls:
+    description: "Newline-separated Drifted run URLs"
+    value: ${{ steps.run.outputs.run-urls }}
+  result-file:
+    description: "Path to the JSON result with evidence"
+    value: ${{ steps.run.outputs.result-file }}
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+    - id: run
+      shell: bash
+      env:
+        DRIFTED_TOKEN: ${{ inputs.token }}
+        DRIFTED_URL: ${{ inputs.drifted-url }}
+        DRIFTED_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+        DRIFTED_WORKFLOW: ${{ inputs.workflow }}
+        DRIFTED_BASE_URL: ${{ inputs.base-url }}
+        DRIFTED_TIMEOUT: ${{ inputs.timeout }}
+      run: |
+        set +e
+        args=(run --wait --json --timeout "$DRIFTED_TIMEOUT")
+        if [ -n "$DRIFTED_WORKFLOW" ]; then args+=("$DRIFTED_WORKFLOW"); else args+=(--all); fi
+        if [ -n "$DRIFTED_BASE_URL" ]; then args+=(--base-url "$DRIFTED_BASE_URL"); fi
+        result="$RUNNER_TEMP/drifted-result.json"
+        npx -y drifted-dev@0.1 "${args[@]}" > "$result" 2> "$RUNNER_TEMP/drifted-stderr.txt"
+        code=$?
+        cat "$RUNNER_TEMP/drifted-stderr.txt" >&2
+        echo "exit=$code" >> "$GITHUB_OUTPUT"
+        echo "result-file=$result" >> "$GITHUB_OUTPUT"
+        node "$GITHUB_ACTION_PATH/report.mjs" outputs "$result" "$code" >> "$GITHUB_OUTPUT"
+        node "$GITHUB_ACTION_PATH/report.mjs" markdown "$result" "$code" >> "$GITHUB_STEP_SUMMARY"
+    - id: comment
+      if: inputs.comment == 'true' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        RESULT_FILE: ${{ steps.run.outputs.result-file }}
+        EXIT_CODE: ${{ steps.run.outputs.exit }}
+      run: node "$GITHUB_ACTION_PATH/comment.mjs"
+    - shell: bash
+      env:
+        EXIT_CODE: ${{ steps.run.outputs.exit }}
+      run: |
+        if [ "$EXIT_CODE" != "0" ]; then
+          echo "Drifted verification did not pass (exit $EXIT_CODE)." >&2
+          exit "$EXIT_CODE"
+        fi

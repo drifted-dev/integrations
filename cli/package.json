@@ -1,0 +1,42 @@
+{
+  "name": "drifted-dev",
+  "version": "0.1.0",
+  "description": "Run Drifted workflows and read agent-ready evidence from the terminal, CI, Claude Code, or Codex.",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://drifted.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/drifted-dev/integrations.git",
+    "directory": "cli"
+  },
+  "mcpName": "io.github.drifted-dev/drifted",
+  "bin": {
+    "drifted": "bin/drifted.mjs"
+  },
+  "exports": {
+    ".": "./src/api.mjs",
+    "./cli": "./src/cli.mjs",
+    "./mcp": "./src/mcp.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "keywords": [
+    "drifted",
+    "e2e",
+    "verification",
+    "claude-code",
+    "codex",
+    "mcp",
+    "ci"
+  ],
+  "bugs": {
+    "url": "https://github.com/drifted-dev/integrations/issues"
+  }
+}
